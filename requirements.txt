@@ -1,0 +1,6 @@
+easyocr
+opencv-python-headless
+torch
+torchvision
+pytest
+Pillow
