@@ -4,25 +4,47 @@ import re
 import shutil
 import easyocr
 import argparse
+import logging
 from typing import List, Optional
 
 # --- Configuration ---
 ALLOWED_EXTENSIONS = ("*.jpg", "*.jpeg", "*.png")
-# Regex to find the initial pattern like "MT_PM_..."
 REGEX_PATTERN = r"(MT_PM_[\w_]+)"
+
+def setup_logging():
+    """Configures the logging system to output to both console and a file."""
+    # Create a logger
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO) # Set the lowest level to capture all messages
+
+    # Create a file handler to write logs to a file
+    file_handler = logging.FileHandler('renamer.log', mode='w')
+    file_handler.setLevel(logging.INFO)
+    file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(file_formatter)
+
+    # Create a console handler to display logs on the screen
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    console_handler.setFormatter(console_formatter)
+
+    # Add both handlers to the logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
 def setup_directories(output_path: str, error_path: str):
     """Creates the specified output and error directories if they don't exist."""
-    print("Initializing output directories...")
+    logging.info("Initializing output directories...")
     os.makedirs(output_path, exist_ok=True)
     os.makedirs(error_path, exist_ok=True)
-    print(f"  - Output directory: '{output_path}'")
-    print(f"  - Error directory: '{error_path}'")
+    logging.info(f"  - Output directory: '{output_path}'")
+    logging.info(f"  - Error directory: '{error_path}'")
 
 def find_image_files(source_path: str) -> List[str]:
     """Finds all image files with allowed extensions directly in the source path."""
     if not os.path.isdir(source_path):
-        print(f"Error: Source directory not found at '{source_path}'")
+        logging.error(f"Source directory not found at '{source_path}'")
         return []
         
     image_files = []
@@ -75,17 +97,17 @@ def process_images(source_path: str, output_path: str, error_path: str, reader: 
     total_files = len(image_files)
 
     if total_files == 0:
-        print(f"\nNo image files found in '{source_path}'. Exiting.")
+        logging.info(f"No image files found in '{source_path}'. Exiting.")
         return
 
-    print(f"\nFound {total_files} images to process in '{source_path}'.")
+    logging.info(f"Found {total_files} images to process in '{source_path}'.")
     
     success_count = 0
     fail_count = 0
 
     for i, image_path in enumerate(image_files, 1):
         filename = os.path.basename(image_path)
-        print(f"\n[{i}/{total_files}] Processing '{filename}'...")
+        logging.info(f"[{i}/{total_files}] Processing '{filename}'...")
 
         try:
             extracted_text = extract_text_from_image(image_path, reader)
@@ -95,37 +117,37 @@ def process_images(source_path: str, output_path: str, error_path: str, reader: 
                 new_name_base = normalize_pattern(initial_pattern)
                 original_extension = os.path.splitext(filename)[1]
                 
-                # Copy successful files to the output directory
                 destination_path = get_unique_destination_path(output_path, new_name_base, original_extension)
                 shutil.copy2(image_path, destination_path)
                 
-                print(f"   SUCCESS: Found pattern '{new_name_base}'. Copied to '{output_path}'.")
+                logging.info(f"  SUCCESS: Found pattern '{new_name_base}'. Copied to '{output_path}'.")
                 success_count += 1
             else:
-                # Move error files to the error directory
                 error_destination = os.path.join(error_path, filename)
                 shutil.move(image_path, error_destination)
-                print(f"   FAILED: Pattern not found. Moved to '{error_path}'.")
+                logging.warning(f"  FAILED: Pattern not found. Moved '{filename}' to '{error_path}'.")
                 fail_count += 1
 
         except Exception as e:
-            print(f"   ERROR: An unexpected error occurred: {e}")
+            logging.error(f"An unexpected error occurred while processing '{filename}'.", exc_info=True)
             try:
                 error_destination = os.path.join(error_path, filename)
                 if os.path.exists(image_path):
                     shutil.move(image_path, error_destination)
             except Exception as move_e:
-                print(f"     Could not move file to error directory: {move_e}")
+                logging.error(f"Could not move file '{filename}' to error directory: {move_e}")
             fail_count += 1
             
-    print("\n-------------------------------------------")
-    print(f"Processing complete. Successful: {success_count}, Failed: {fail_count}.")
-    print("-------------------------------------------")
+    logging.info("-------------------------------------------")
+    logging.info(f"Processing complete. Successful: {success_count}, Failed: {fail_count}.")
+    logging.info("-------------------------------------------")
 
 def main():
     """
     Main entry point. Parses command-line arguments and processes images.
     """
+    setup_logging()
+    
     parser = argparse.ArgumentParser(
         description="OCR-based File Renamer with flexible source and destination paths."
     )
@@ -136,12 +158,12 @@ def main():
 
     setup_directories(args.output, args.error)
 
-    print("Loading OCR model (this may take a moment)...")
+    logging.info("Loading OCR model (this may take a moment)...")
     try:
         reader = easyocr.Reader(['en'])
-        print("OCR model loaded successfully.")
+        logging.info("OCR model loaded successfully.")
     except Exception as e:
-        print(f"Fatal Error: Could not load OCR model. Please check your EasyOCR installation. Details: {e}")
+        logging.critical("Fatal Error: Could not load OCR model. Please check your EasyOCR installation.", exc_info=True)
         return
 
     process_images(args.source, args.output, args.error, reader)
